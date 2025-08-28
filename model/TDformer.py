@@ -2,7 +2,7 @@ from layers.TDformer_EncDec import EncoderLayer, Encoder, DecoderLayer, Decoder,
 import torch.nn as nn
 import torch
 from layers.Embed import DataEmbedding
-from layers.Attention import WaveletAttention, FourierAttention, FullAttention
+from layers.Attention import FourierAttention, FullAttention
 from layers.RevIN import RevIN
 import torch.nn.functional as F
 
