@@ -135,6 +135,11 @@ class FourierAttention(nn.Module):
 
             xqk_ft = torch.complex(xqk_ft_real, torch.zeros_like(xqk_ft_real))
             xqkv_ft = torch.einsum("bhxy,bhey->bhex", xqk_ft, xv_ft_)
+        elif self.activation == 'gelu':
+            xqk_ft_real = xqk_ft.real  # Use real part for simplicity
+            xqk_ft = torch.complex(xqk_ft_real, torch.zeros_like(xqk_ft_real))
+            xqk_ft = F.gelu(xqk_ft)
+            xqkv_ft = torch.einsum("bhxy,bhey->bhex", xqk_ft, xv_ft_)
 
         out = torch.fft.irfft(xqkv_ft, n=L, dim=-1, norm='ortho').permute(0, 3, 1, 2)
 
