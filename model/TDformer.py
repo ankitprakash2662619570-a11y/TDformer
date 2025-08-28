@@ -8,9 +8,6 @@ import torch.nn.functional as F
 
 
 class Model(nn.Module):
-    """
-    Transformer for seasonality, MLP for trend
-    """
     def __init__(self, configs):
         super(Model, self).__init__()
         self.version = configs.version
@@ -113,14 +110,35 @@ class Model(nn.Module):
             projection=nn.Linear(configs.d_model, configs.c_out, bias=True)
         )
 
-        # Encoder
-        self.trend = nn.Sequential(
-            nn.Linear(configs.seq_len, configs.d_model),
-            nn.ReLU(),
-            nn.Linear(configs.d_model, configs.d_model),
-            nn.ReLU(),
-            nn.Linear(configs.d_model, configs.pred_len)
-        )
+        # Trend RNN
+        bidirectional = configs.rnn_type == 'BiLSTM'
+        if configs.rnn_type == 'LSTM' or bidirectional:
+            self.trend_rnn = nn.LSTM(
+                input_size=configs.enc_in,
+                hidden_size=configs.hidden_size,
+                num_layers=configs.num_layers,
+                batch_first=True,
+                dropout=configs.dropout,
+                bidirectional=bidirectional
+            )
+        elif configs.rnn_type == 'GRU':
+            self.trend_rnn = nn.GRU(
+                input_size=configs.enc_in,
+                hidden_size=configs.hidden_size,
+                num_layers=configs.num_layers,
+                batch_first=True,
+                dropout=configs.dropout
+            )
+        elif configs.rnn_type == 'RNN':
+            self.trend_rnn = nn.RNN(
+                input_size=configs.enc_in,
+                hidden_size=configs.hidden_size,
+                num_layers=configs.num_layers,
+                batch_first=True,
+                dropout=configs.dropout
+            )
+        hidden_dim = configs.hidden_size * (2 if bidirectional else 1)
+        self.linear = nn.Linear(hidden_dim, configs.pred_len * configs.enc_in)
 
         self.revin_trend = RevIN(configs.enc_in).to(self.device)
 
@@ -128,7 +146,7 @@ class Model(nn.Module):
                 enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None):
 
         # decomp init
-        zeros = torch.zeros([x_dec.shape[0], self.pred_len, x_dec.shape[2]]).to(self.device)  # cuda()
+        zeros = torch.zeros([x_dec.shape[0], self.pred_len, x_dec.shape[2]]).to(self.device)
         seasonal_enc, trend_enc = self.decomp(x_enc)
         seasonal_dec = F.pad(seasonal_enc[:, -self.label_len:, :], (0, 0, 0, self.pred_len))
 
@@ -145,7 +163,9 @@ class Model(nn.Module):
 
         # trend
         trend_enc = self.revin_trend(trend_enc, 'norm')
-        trend_out = self.trend(trend_enc.permute(0, 2, 1)).permute(0, 2, 1)
+        out, _ = self.trend_rnn(trend_enc)
+        last = out[:, -1, :]
+        trend_out = self.linear(last).view(-1, self.pred_len, -1)
         trend_out = self.revin_trend(trend_out, 'denorm')
 
         # final
